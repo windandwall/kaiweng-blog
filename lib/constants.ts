@@ -3,7 +3,7 @@ export const SITE_CONFIG = {
   title: 'Tech Blog',
   description:
     'Personal technical blog about digital IC design, computer architecture, FPGA, and AI chips.',
-  url: process.env.NEXT_PUBLIC_SITE_URL || 'https://kaiweng.dev',
+  url: process.env.NEXT_PUBLIC_SITE_URL || 'https://windandfall.me',
   ogImage: '/images/og-image.png',
   author: {
     name: 'Kai Weng',
