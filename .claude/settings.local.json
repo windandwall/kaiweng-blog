@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx create-next-app@latest . --typescript --tailwind --eslint --app --src-dir=false --import-alias=\"@/*\" --use-npm --no-turbopack)",
+      "Bash(npm --version)",
+      "Read(//c/Program Files/**)",
+      "Bash(\"C:/Program Files/nodejs/node.exe\" --version)",
+      "Bash(where.exe node *)",
+      "Bash(where.exe npm *)",
+      "Bash(npm install *)",
+      "Bash(npm run *)",
+      "Bash(git init *)",
+      "Bash(git add *)"
+    ]
+  }
+}

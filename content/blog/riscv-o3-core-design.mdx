@@ -1,0 +1,391 @@
+---
+title: 'Building a RISC-V Out-of-Order Core: Pipeline Design, Branch Prediction, and Memory Ordering'
+description: 'A hands-on guide to designing an out-of-order RISC-V processor core, from the frontend fetch stage through the issue queue to the load-store unit and ROB commit.'
+date: '2024-08-22'
+tags: ['RISC-V', 'SystemVerilog', 'Computer Architecture', 'Processor Design']
+category: 'Computer Architecture'
+featured: true
+---
+
+## The OoO Paradigm
+
+An in-order processor executes instructions strictly in program order. Simple, but stalls on every cache miss or data dependency. An out-of-order (OoO) processor decouples fetch, issue, execute, and commit — allowing independent instructions to execute in parallel even when earlier instructions are stalled.
+
+The canonical OoO pipeline:
+
+```
+Fetch → Decode → Rename → Issue Queue → Execute → Writeback → Commit
+  │                                          │
+  └──────────── Branch Prediction ────────────┘
+```
+
+Each stage operates largely independently, communicating through FIFO queues:
+
+```
+Branch Predictor ──► Fetch ──► Decode ──► Rename ──► IssueQ ──► FU[0..N-1]
+                                    ▲                       │
+                                    │    ┌──────────────────┘
+                                    │    ▼
+                              ┌─────┴────────┐
+                              │  Register File│
+                              │  (Physical)   │
+                              └──────────────┘
+                                    │
+                                    ▼
+                              ROB ◄── Writeback
+                                    │
+                                    ▼
+                                  Commit
+```
+
+## Frontend: Fetch and Prediction
+
+### Branch Predictor: TAGE
+
+The TAGE (TAgged GEometric) predictor uses multiple predictor tables indexed by different history lengths:
+
+```systemverilog
+module tage_predictor #(
+  parameter NUM_TABLES = 4
+) (
+  input  wire        clk,
+  input  wire [31:0] pc,
+  output wire        predicted_taken,
+  output wire [31:0] predicted_target
+);
+
+  // TAGE tables: each with different history length
+  // Table 0: 2-bit history, Table 1: 8-bit, Table 2: 32-bit, Table 3: 128-bit
+  
+  typedef struct packed {
+    logic [1:0]  ctr;     // 3-bit saturating counter
+    logic [7:0]  tag;     // Partial tag
+    logic        useful;  // Usefulness bit
+  } tage_entry_t;
+  
+  tage_entry_t tage_table [NUM_TABLES-1:0][255:0]; // 256 entries per table
+  
+  // Hash PC with global history
+  wire [7:0] index [NUM_TABLES-1:0];
+  genvar i;
+  generate
+    for (i = 0; i < NUM_TABLES; i = i + 1) begin : gen_idx
+      assign index[i] = (pc >> 2) ^ ghist[NUM_TABLES-i-1:0];
+    end
+  endgenerate
+  
+  // Provider selection: longest-history matching table wins
+  // If tag matches and useful bit is set, use that prediction
+  // Fall back to bimodal predictor (not shown) if no tag match
+  
+  always_comb begin
+    predicted_taken = 1'b0;
+    for (int i = NUM_TABLES-1; i >= 0; i--) begin
+      if (tage_table[i][index[i]].tag == pc[9:2] && 
+          tage_table[i][index[i]].useful) begin
+        predicted_taken = tage_table[i][index[i]].ctr[2];
+        break;
+      end
+    end
+  end
+
+endmodule
+```
+
+TAGE achieves 97-99% prediction accuracy on SPEC benchmarks. The cost: ~8 KB of SRAM for the prediction tables.
+
+### Fetch Stage
+
+The fetch stage reads from the L1 instruction cache and feeds the decode stage:
+
+```systemverilog
+module fetch_stage (
+  input  wire        clk,
+  input  wire        rst_n,
+  input  wire        stall,
+  input  wire [31:0] redirect_pc,    // From branch resolution
+  input  wire        redirect_valid,
+  output wire [31:0] fetch_pc,
+  output wire [31:0] fetch_instr
+);
+
+  reg [31:0] pc;
+  
+  always @(posedge clk or negedge rst_n) begin
+    if (!rst_n) begin
+      pc <= 32'h8000_0000;  // RISC-V reset vector
+    end else if (redirect_valid) begin
+      pc <= redirect_pc;
+    end else if (!stall) begin
+      pc <= pc + 4;
+    end
+  end
+  
+  // I-cache interface
+  assign fetch_pc = pc;
+  // instr comes from I-cache (not shown)
+
+endmodule
+```
+
+## Middle: Rename and Issue
+
+### Register Renaming
+
+Register renaming eliminates write-after-write (WAW) and write-after-read (WAR) hazards by mapping architectural registers to a larger pool of physical registers.
+
+```systemverilog
+module register_rename #(
+  parameter ARCH_REGS = 32,
+  parameter PHYS_REGS = 64
+) (
+  input  wire        clk,
+  input  wire [4:0]  rs1_arch, rs2_arch, rd_arch,
+  input  wire        valid,
+  output wire [5:0]  rs1_phys, rs2_phys, rd_phys
+);
+
+  // Mapping table: architectural → physical
+  reg [5:0] rat [0:ARCH_REGS-1];  // Register Alias Table
+  reg [5:0] free_list [0:PHYS_REGS-1];
+  reg [5:0] free_head, free_tail;
+  
+  assign rs1_phys = rat[rs1_arch];
+  assign rs2_phys = rat[rs2_arch];
+  
+  // Allocate new physical register for destination
+  assign rd_phys = free_list[free_head];
+  
+  always @(posedge clk) begin
+    if (valid) begin
+      rat[rd_arch] <= free_list[free_head];
+      free_head <= free_head + 1'b1;
+    end
+  end
+
+endmodule
+```
+
+Key data structures:
+- **RAT** (Register Alias Table): maps arch reg → phys reg
+- **Free List**: pool of unallocated physical registers
+- **ROB** (Reorder Buffer): tracks in-flight instructions in program order
+
+### Issue Queue
+
+The issue queue (also called the reservation station) holds renamed instructions waiting for their operands:
+
+```systemverilog
+module issue_queue #(
+  parameter ENTRIES = 32
+) (
+  input  wire clk,
+  // Wakeup: new results broadcast on result bus
+  input  wire [5:0]  wakeup_phys_reg [3:0],
+  input  wire [3:0]  wakeup_valid,
+  // Select: choose which instructions to issue
+  output wire [1:0] issue_idx [1:0],  // 2-wide issue
+  output wire        issue_valid [1:0]
+);
+
+  typedef struct packed {
+    logic        busy;
+    logic [5:0]  rs1_phys, rs2_phys;
+    logic        rs1_ready, rs2_ready;
+    logic [3:0]  fu_type;     // ALU, MULT, LSU, BRANCH
+    logic [4:0]  rd_phys;
+    logic [31:0] pc;
+  } iq_entry_t;
+  
+  iq_entry_t entries [0:ENTRIES-1];
+  
+  // Wakeup: match broadcast physical reg against waiting operands
+  always_ff @(posedge clk) begin
+    for (int i = 0; i < ENTRIES; i++) begin
+      if (entries[i].busy) begin
+        for (int w = 0; w < 4; w++) begin
+          if (wakeup_valid[w]) begin
+            if (entries[i].rs1_phys == wakeup_phys_reg[w])
+              entries[i].rs1_ready <= 1'b1;
+            if (entries[i].rs2_phys == wakeup_phys_reg[w])
+              entries[i].rs2_ready <= 1'b1;
+          end
+        end
+      end
+    end
+  end
+  
+  // Select: oldest-ready-first arbitration
+  // (Simplified - real implementation needs age-based priority)
+
+endmodule
+```
+
+## Backend: Execution and Memory
+
+### Execution Units
+
+A typical OoO core has several functional units:
+
+| Unit | Latency | Pipelined | Count |
+|------|---------|-----------|-------|
+| Simple ALU | 1 cycle | Yes | 2 |
+| Complex ALU (multiply/divide) | 3/32 cycles | Yes/No | 1 |
+| Load | 4 cycles (L1 hit) | Yes | 1 |
+| Store | 1 cycle (address gen) | — | 1 |
+| Branch | 1 cycle | Yes | 1 |
+
+### Load-Store Unit and Memory Ordering
+
+The LSU must enforce that loads and stores appear to execute in program order, even though they may execute out of order.
+
+```systemverilog
+module load_store_unit (
+  input  wire        clk,
+  input  wire [31:0] addr,
+  input  wire        is_load, is_store,
+  input  wire [7:0]  rob_id,
+  // ...
+);
+
+  // Load Queue (LQ): tracks in-flight loads
+  // Store Queue (SQ): tracks in-flight stores
+  
+  // Store-to-Load Forwarding:
+  // When a load executes, check the SQ for older stores to the same address.
+  // If found, forward the store data instead of reading from cache.
+  
+  // Memory Ordering Violation Detection:
+  // A load that executes before an older store to the same address
+  // has violated memory ordering. The load (and all younger instructions)
+  // must be squashed and replayed.
+
+endmodule
+```
+
+Memory disambiguation is one of the trickiest parts of OoO design. The classic approach:
+
+1. **Speculative loads**: Execute loads as early as possible
+2. **Post-execution check**: When older stores execute, check if they overlap with younger already-completed loads
+3. **Replay on violation**: Squash and restart from the violating load
+
+### Reorder Buffer (ROB)
+
+The ROB is the heart of precise exception handling:
+
+```systemverilog
+module reorder_buffer #(
+  parameter ENTRIES = 64
+) (
+  input  wire clk,
+  input  wire rst_n,
+  // Dispatch: allocate ROB entry
+  input  wire        dispatch_valid,
+  output wire [6:0]  dispatch_rob_id,
+  // Complete: instruction finished execution
+  input  wire        complete_valid,
+  input  wire [6:0]  complete_rob_id,
+  // Commit: retire instruction in order
+  output wire        commit_valid,
+  output wire [4:0]  commit_rd_arch,
+  output wire [5:0]  commit_rd_phys
+);
+
+  typedef struct packed {
+    logic        valid;
+    logic        complete;
+    logic        exception;
+    logic [4:0]  exception_cause;
+    logic [4:0]  rd_arch;    // Architectural destination
+    logic [5:0]  rd_phys_old; // Previous physical reg (for freeing)
+    logic [31:0] pc;
+  } rob_entry_t;
+  
+  rob_entry_t entries [0:ENTRIES-1];
+  
+  reg [6:0] head_ptr, tail_ptr;
+  
+  // Commit: oldest complete instruction retires
+  assign commit_valid = entries[head_ptr].valid && 
+                        entries[head_ptr].complete;
+  
+  always @(posedge clk or negedge rst_n) begin
+    if (!rst_n) begin
+      head_ptr <= 7'd0;
+      tail_ptr <= 7'd0;
+    end else begin
+      if (commit_valid && !entries[head_ptr].exception) begin
+        entries[head_ptr].valid <= 1'b0;
+        // Free old physical register
+        head_ptr <= head_ptr + 1'b1;
+        // Update architectural state
+      end
+      if (dispatch_valid) begin
+        entries[tail_ptr].valid <= 1'b1;
+        tail_ptr <= tail_ptr + 1'b1;
+      end
+    end
+  end
+
+endmodule
+```
+
+## Performance Analysis
+
+For a 6-wide superscalar OoO RISC-V core at 2 GHz on 5nm:
+
+| Benchmark | IPC | Branch MPKI | L1 Miss Rate |
+|-----------|-----|-------------|--------------|
+| SPEC CPU2017 int | 2.1 | 4.3 | 1.2% (I), 2.8% (D) |
+| SPEC CPU2017 fp | 2.8 | 1.7 | 0.3% (I), 4.1% (D) |
+| CoreMark | 3.8 | 2.1 | 0.1% |
+| Dhrystone | 4.2 | 1.5 | 0.05% |
+
+Typical area budget for synthesizable implementation:
+
+| Structure | Area (μm², 5nm) | % of Total |
+|-----------|----------------|------------|
+| Physical Register File (64×64b) | 12,000 | 8% |
+| Issue Queue (64 entries) | 25,000 | 16% |
+| ROB (128 entries) | 18,000 | 12% |
+| L1 I-cache (32 KB) | 35,000 | 23% |
+| L1 D-cache (32 KB) | 30,000 | 20% |
+| Execution Units | 15,000 | 10% |
+| Other (decode, rename, predictors) | 17,000 | 11% |
+| **Total** | **152,000** | **100%** |
+
+## Verification Strategy
+
+OoO processors require multi-layered verification:
+
+1. **Directed tests**: Hand-written assembly for specific scenarios (e.g., RAW hazard, load-hit-store)
+2. **Random instruction streams**: Generate random instruction sequences, compare against golden ISA simulator
+3. **Checkers/Assertions**: Monitor invariants at each pipeline stage
+4. **Formal verification**: Prove safety properties of critical state machines
+
+```systemverilog
+// Critical invariant: ROB head must be complete to commit
+assert property (
+  @(posedge clk) disable iff (!rst_n)
+  commit_valid |-> entries[head_ptr].complete
+);
+
+// No duplicate physical register allocation
+// Physical register must be in free list before allocation
+```
+
+## Conclusion
+
+Building an OoO core is one of the most challenging and rewarding projects in digital design. The key insights:
+
+1. **Everything is about speculation**: Branch prediction, value prediction, memory disambiguation — all speculating and checking later
+2. **The ROB is the linchpin**: It enables precise exceptions while allowing OoO execution
+3. **Memory ordering is the hardest part**: Load-store ordering violations are subtle and hard to reproduce
+4. **Start simple and iterate**: Get an in-order core working first, then add OoO features incrementally
+
+## References
+
+- Patterson, D. A., & Hennessy, J. L. (2017). *Computer Organization and Design: RISC-V Edition*
+- Seznec, A. (2011). "A new case for the TAGE branch predictor" *MICRO*
+- Shen, J. P., & Lipasti, M. H. (2013). *Modern Processor Design*
+- RISC-V Unprivileged ISA Specification v20191213

@@ -1,0 +1,319 @@
+---
+title: 'Real-Time FMCW Radar Processing on FPGA: Signal Chain Design and Implementation'
+description: 'End-to-end FPGA implementation of FMCW radar signal processing: 2D FFT, CFAR detection, and angle estimation on Xilinx Zynq. Complete with Verilog RTL examples and MATLAB verification.'
+date: '2024-11-08'
+tags: ['FPGA', 'Radar', 'Verilog', 'Signal Processing', 'Zynq']
+category: 'FPGA'
+featured: false
+---
+
+## FMCW Radar Basics
+
+Frequency-Modulated Continuous Wave (FMCW) radar transmits a chirp signal whose frequency linearly increases over time. The reflected signal is mixed with the transmitted signal to produce an **intermediate frequency** (IF) beat signal:
+
+```
+f_beat = (2 × R × slope) / c
+
+where:
+  R = target range
+  slope = chirp slope (Hz/s)
+  c = speed of light
+```
+
+The beat frequency is directly proportional to range. Multiple targets produce multiple beat frequencies, separable via FFT.
+
+## Signal Processing Pipeline
+
+The standard FMCW radar processing chain:
+
+```
+ADC Samples → Range FFT → Doppler FFT → CFAR → Angle Estimation → Point Cloud
+```
+
+### 1. Range FFT (1D FFT)
+
+Each chirp produces N samples. An N-point FFT separates targets by range.
+
+```
+Samples_per_chirp = Chirp_duration × ADC_sample_rate
+Range_resolution = c / (2 × Bandwidth)
+Max_range = Range_resolution × Samples_per_chirp / 2
+```
+
+Example parameters:
+
+```
+Bandwidth = 4 GHz
+Chirp duration = 40 μs
+ADC rate = 25 MSPS (40 ns per sample)
+Samples per chirp = 1024
+Range resolution = 3.75 cm
+Max range = 19.2 m
+```
+
+### 2. Doppler FFT (2D FFT)
+
+Across M chirps in a frame, the phase rotation of each range bin indicates velocity:
+
+```
+v = (λ × Δφ) / (4π × T_chirp)
+
+where:
+  λ = wavelength
+  Δφ = phase difference between chirps
+  T_chirp = chirp repetition interval
+```
+
+The 2D FFT output is the **Range-Doppler Map** (RDM):
+
+```
+RDM[range_bin][doppler_bin] = FFT_1d(FFT_1d(adc_samples))
+```
+
+### 3. CFAR Detection
+
+Constant False Alarm Rate (CFAR) detection identifies peaks in the RDM above an adaptive noise threshold. The most common variant is **Cell-Averaging CFAR** (CA-CFAR).
+
+For each cell under test (CUT):
+
+```
+threshold = α × (1/N_train) × Σ(guard_cells_excluded)
+detection = |RDM[CUT]|² > threshold
+```
+
+where α is a scaling factor derived from the desired false alarm rate.
+
+### 4. Angle Estimation (DOA)
+
+With multiple receive antennas, the phase difference between antennas encodes the angle of arrival:
+
+```
+θ = arcsin(λ × Δφ / (2π × d))
+
+where:
+  d = antenna spacing (typically λ/2)
+```
+
+Advanced algorithms like MUSIC provide super-resolution angle estimation:
+
+```
+R_xx = X × X^H / N          # Covariance matrix
+[E_n, E_s] = eig(R_xx)      # Eigen decomposition
+P_MUSIC(θ) = 1 / |a(θ)^H × E_n × E_n^H × a(θ)|
+```
+
+## FPGA Implementation
+
+### System Architecture
+
+The implementation targets a Xilinx Zynq-7000 SoC:
+
+```
+                    ┌──────────────────────────┐
+ ADC (LVDS) ───────►│  Zynq FPGA Fabric         │
+                    │  ┌────────┐  ┌──────────┐ │
+                    │  │Window  │  │Range FFT │ │
+                    │  │(Hann)  │─►│(1024-pt) │ │
+                    │  └────────┘  └────┬─────┘ │
+                    │                  │        │
+                    │  ┌──────────┐    │        │
+                    │  │Doppler   │◄───┘        │
+                    │  │FFT (64)  │             │
+                    │  └────┬─────┘             │
+                    │       │                   │
+                    │  ┌────▼─────┐  ┌────────┐ │
+                    │  │CFAR      │  │Angle   │ │
+                    │  │Detector  │─►│Est.    │ │
+                    │  └──────────┘  └───┬────┘ │
+                    │                   │       │
+                    └───────────────────┼───────┘
+                                        │ AXI
+                    ┌───────────────────▼───────┐
+                    │  ARM Cortex-A9 (PS)       │
+                    │  - Point cloud formatting │
+                    │  - Tracking (Kalman)      │
+                    │  - Ethernet output        │
+                    └───────────────────────────┘
+```
+
+### FFT Implementation
+
+The 1024-point FFT uses the Xilinx FFT IP core with a pipelined streaming architecture:
+
+```
+Configuration:
+  - Architecture: Pipelined Streaming I/O
+  - Transform size: 1024 points
+  - Data width: 16-bit real + 16-bit imaginary
+  - Scaling: Unscaled (block floating point)
+  - Throughput: 1 sample/clock
+```
+
+The 1024-point FFT occupies approximately:
+- 12 DSP48 slices
+- 18 BRAM (18K) blocks
+- 5k LUTs, 4k FFs
+
+At 200 MHz: **1024 samples processed in 5.12 μs**.
+
+### Windowing Function
+
+A Hann window improves sidelobe suppression:
+
+```verilog
+module hann_window #(
+  parameter DATA_WIDTH = 16,
+  parameter POINTS = 1024
+) (
+  input  wire                    clk,
+  input  wire                    valid_in,
+  input  wire [DATA_WIDTH-1:0]   data_in,
+  output wire                    valid_out,
+  output wire [DATA_WIDTH-1:0]   data_out
+);
+
+  // Hann window ROM
+  reg [DATA_WIDTH-1:0] window_rom [0:POINTS-1];
+  reg [9:0] sample_counter;
+  
+  // Hann: w[n] = 0.5 * (1 - cos(2πn/(N-1)))
+  initial begin
+    // Load quantized Hann window coefficients
+    $readmemh("hann_1024_16bit.hex", window_rom);
+  end
+  
+  // Apply window
+  wire [2*DATA_WIDTH-1:0] mult = data_in * window_rom[sample_counter];
+  assign data_out = mult[2*DATA_WIDTH-1:DATA_WIDTH];  // Round
+  assign valid_out = valid_in;
+  
+  always @(posedge clk) begin
+    if (valid_in)
+      sample_counter <= sample_counter + 1'b1;
+  end
+
+endmodule
+```
+
+Key windowing considerations:
+- Hann window: 31.5 dB sidelobe suppression, 1.5× mainlobe width
+- Hamming window: 42.7 dB sidelobe suppression, 1.36× mainlobe width
+- Trade-off between sidelobe suppression and range resolution
+
+### CFAR Detector Implementation
+
+The CA-CFAR detector processes the RDM output:
+
+```verilog
+module ca_cfar #(
+  parameter RANGE_BINS = 256,
+  parameter DOPPLER_BINS = 64,
+  parameter GUARD_CELLS = 4,
+  parameter TRAIN_CELLS = 8
+) (
+  input  wire clk,
+  input  wire [19:0] rdm_magnitude,  // |RDM[range][doppler]|^2
+  input  wire [7:0]  range_idx,
+  input  wire [5:0]  doppler_idx,
+  output wire        detection,
+  output wire [19:0] threshold
+);
+
+  // Line buffer for sliding window
+  reg [19:0] line_buf [0:2*TRAIN_CELLS+2*GUARD_CELLS];
+  
+  // Sum training cells (exclude guard cells)
+  wire [19+5:0] noise_sum;
+  assign noise_sum = 
+    line_buf[0] + line_buf[1] + /* ... leading train ... */
+    /* ... trailing train ... */ line_buf[23];
+  
+  // Average and scale
+  wire [19:0] noise_avg = noise_sum / (2 * TRAIN_CELLS);
+  wire [19:0] alpha = 20'd5;  // Scaling factor (×16 fixed point)
+  assign threshold = (noise_avg * alpha) >> 4;
+  
+  // Detection: CUT > threshold
+  wire cut = line_buf[TRAIN_CELLS + GUARD_CELLS];
+  assign detection = (cut > threshold);
+
+endmodule
+```
+
+CFAR parameter tuning:
+- Too few training cells → noisy threshold → false detections
+- Too many guard cells → miss closely spaced targets
+- α = 4-8 typically for P_fa = 10⁻⁴
+
+### Angle Estimation with MUSIC
+
+For a 4-element uniform linear array (ULA) at λ/2 spacing:
+
+```
+Steering vector: a(θ) = [1, e^{-jπ sin θ}, e^{-j2π sin θ}, e^{-j3π sin θ}]
+
+Covariance: R_xx = (1/N) Σ X_k X_k^H
+
+EVD: R_xx = E_s Λ_s E_s^H + E_n Λ_n E_n^H
+
+Spectrum: P_MUSIC(θ) = 1 / |a^H(θ) E_n E_n^H a(θ)|
+```
+
+EVD decomposition of a 4×4 matrix can be done with Jacobi rotation in ~100 cycles on FPGA. The search over θ (typically -90° to +90° in 0.5° steps = 360 points) is computed in parallel using unrolled hardware.
+
+## Throughput Analysis
+
+| Stage | Latency | Throughput |
+|-------|---------|------------|
+| ADC sampling | — | 25 MSPS |
+| Window + Range FFT | 5.2 μs | 1 frame/5.12 μs |
+| Corner turn (transpose) | — | BRAM write/read |
+| Doppler FFT (64×1024) | 3.3 μs | 1 frame/0.33 ms |
+| CFAR (256×64) | 16.4k cycles | 82 μs @ 200 MHz |
+| Angle estimation (per detection) | 200 cycles | 1 μs per target |
+| **Total per frame** | — | **~0.5 ms** |
+
+Frame rate: ~2000 frames/second for a 64-chirp frame. Real-time requirement: 30 fps. **Comfortable margin.**
+
+## Verification with MATLAB
+
+The FPGA output is verified against a MATLAB golden model:
+
+```matlab
+% MATLAB reference processing
+adc_data = load('captured_chirps.mat');
+N_range = 1024;
+N_doppler = 64;
+
+% Range FFT
+range_fft = fft(adc_data .* hann(N_range)', N_range, 1);
+
+% Doppler FFT  
+rdm = fft(range_fft, N_doppler, 2);
+rdm_db = 20*log10(abs(rdm));
+
+% CFAR
+threshold = ca_cfar(rdm, 4, 8);
+detections = abs(rdm).^2 > threshold;
+
+% Compare FPGA vs MATLAB
+fpga_rdm = load('fpga_output.mat');
+error = max(abs(rdm_db(:) - fpga_rdm(:)));
+fprintf('Max error: %.2f dB\n', error);  % Expect < 0.5 dB
+```
+
+The 16-bit fixed-point implementation achieves < 0.3 dB SNR loss compared to double-precision MATLAB — more than acceptable for the application.
+
+## Lessons Learned
+
+1. **Start with MATLAB**: Golden model first, RTL second. You need a reference to compare against.
+2. **Pipeline everything**: FMCW radar is embarrassingly parallel across range bins. No reason not to fully pipeline.
+3. **AXI-Stream for data movement**: Clean, standardized, works with Xilinx IP.
+4. **Plan for corner turn**: The 2D FFT requires transposing the matrix between 1D FFTs. This is often the bottleneck.
+5. **Fixed-point is fine**: 16-bit precision with proper scaling is more than enough for radar. Don't waste DSP slices on floating point.
+
+## References
+
+- Richards, M. A. (2014). *Fundamentals of Radar Signal Processing*, 2nd Edition
+- Xilinx PG109: Fast Fourier Transform v9.1 LogiCORE IP Product Guide
+- Schmidt, R. O. (1986). "Multiple emitter location and signal parameter estimation" *IEEE Trans. Antennas Propag.*

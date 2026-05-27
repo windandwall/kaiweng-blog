@@ -1,0 +1,300 @@
+---
+title: 'Designing a Systolic Array for Neural Network Inference: Architecture Deep Dive'
+description: 'A practical guide to designing systolic array accelerators for neural network inference, covering dataflows, memory hierarchy, and PE microarchitecture.'
+date: '2025-01-20'
+tags: ['NPU', 'AI Chip', 'Systolic Array', 'Computer Architecture']
+category: 'AI Chips'
+featured: true
+---
+
+## Why Systolic Arrays?
+
+Neural network inference is dominated by matrix multiplications. A systolic array maps the triply-nested loop of matrix multiply directly to a 2D grid of processing elements (PEs), where data flows rhythmically through the array — like a heartbeat.
+
+The key advantages:
+
+1. **Regular dataflow** — no irregular memory accesses
+2. **High utilization** — PEs stay busy once the pipeline fills
+3. **Scalable** — add more rows/columns for more throughput
+4. **Local communication only** — no long wires, easier timing closure
+
+## The Basic Architecture
+
+A systolic array for matrix multiply `C = A × B`:
+
+```
+        b0   b1   b2   b3
+        ↓    ↓    ↓    ↓
+  a0 → [PE]→[PE]→[PE]→[PE]  → c00, c01, c02, c03
+  a1 → [PE]→[PE]→[PE]→[PE]  → c10, c11, c12, c13
+  a2 → [PE]→[PE]→[PE]→[PE]  → c20, c21, c22, c23
+  a3 → [PE]→[PE]→[PE]→[PE]  → c30, c31, c32, c33
+```
+
+Each PE performs:
+
+```
+c += a × b
+```
+
+On each cycle:
+- `a` flows right (to the next PE in the row)
+- `b` flows down (to the next PE in the column)
+- `c` accumulates locally
+
+After the pipeline fills, **every PE does useful work every cycle**. This is the ideal: 100% MAC utilization for dense matrix multiply.
+
+## Dataflow Taxonomy
+
+The research literature identifies three canonical dataflows:
+
+### Weight-Stationary (WS)
+
+**Weights are pre-loaded into PEs and stay there.**
+
+- Activations flow horizontally
+- Partial sums flow vertically
+- Best when: weights are reused many times (small model, large batch)
+
+```
+for (row) for (col):
+  PE[row][col].weight = W[row][col]
+  
+for (cycle):
+  for (row): a[row] flows right
+  for (col): psum[col] accumulates downward
+```
+
+### Output-Stationary (OS)
+
+**Accumulators stay in PEs until complete.**
+
+- Activations flow horizontally
+- Weights flow vertically
+- Best when: activations are reused (RNN, attention)
+
+```
+for (row) for (col):
+  PE[row][col].acc = 0
+  
+for (cycle):
+  a flows right, w flows down
+  PE: acc += a × w
+```
+
+### Input-Stationary (IS)
+
+**Activations are pre-loaded and stay.**
+
+- Weights flow horizontally
+- Partial sums flow vertically
+- Best when: weights are streamed from DRAM (single-use)
+
+### Row-Stationary (Eyeriss)
+
+The Eyeriss architecture from MIT uses a hybrid approach — **row-stationary** — where each PE processes one row of the filter and one row of the activation map, maximizing local reuse of both.
+
+## Processing Element Microarchitecture
+
+A practical PE in Verilog:
+
+```verilog
+module systolic_pe (
+  input  wire        clk,
+  input  wire        rst_n,
+  input  wire [7:0]  a_in,       // activation input
+  input  wire [7:0]  b_in,       // weight input
+  input  wire [19:0] c_in,       // partial sum input
+  output wire [7:0]  a_out,      // activation passed right
+  output wire [7:0]  b_out,      // weight passed down
+  output wire [19:0] c_out       // partial sum output
+);
+
+  reg [7:0]  a_reg, b_reg;
+  reg [19:0] c_reg;
+  
+  wire [15:0] mult_result;
+  
+  assign mult_result = a_reg * b_reg;
+  assign a_out = a_reg;
+  assign b_out = b_reg;
+  assign c_out = c_reg + {4'b0, mult_result};
+  
+  always @(posedge clk or negedge rst_n) begin
+    if (!rst_n) begin
+      a_reg <= 8'd0;
+      b_reg <= 8'd0;
+      c_reg <= 20'd0;
+    end else begin
+      a_reg <= a_in;
+      b_reg <= b_in;
+      c_reg <= c_reg + {4'b0, mult_result};
+    end
+  end
+
+endmodule
+```
+
+Key design decisions:
+
+- **INT8 precision** is sufficient for inference; training typically needs FP16/BF16
+- **20-bit accumulator** prevents overflow for up to 16 terms (8b × 8b = 16b product, 4 extra bits for accumulation)
+- **Registered inputs** for clean timing — the registers absorb the setup/hold burden
+
+## Memory Hierarchy
+
+The compute array is only half the story. Data supply is the real bottleneck.
+
+### Level 0: Register File
+
+Each PE has a small register file for its weight (WS dataflow) or accumulator (OS dataflow). This is the cheapest data to access — essentially free.
+
+### Level 1: Global Buffer
+
+A shared SRAM buffer (typically 128-512 KB) holds a tile of activations and weights being processed. The buffer feeds data to the array edges.
+
+### Level 2: On-Chip SRAM
+
+Larger SRAM (1-8 MB) for the current layer's weights and intermediate activations. At inference time, you typically want all weights on-chip.
+
+### Level 3: DRAM
+
+Off-chip DRAM (HBM2e, LPDDR5) for model weights and I/O.
+
+### The Data Reuse Problem
+
+The key metric is **data reuse** — how many MAC operations you get per byte of data fetched from each level:
+
+```
+MAC operations = M × N × K (for M×K × K×N matmul)
+Bytes fetched = M×K (activations) + K×N (weights) + M×N (outputs)
+
+Reuse ratio = (2 × M × N × K) / (M×K + K×N + M×N) bytes
+            ≈ 2K/(1 + K/M + K/N) for large K
+```
+
+With tiling, you can dramatically increase reuse. A well-designed tile can achieve 100-1000× reuse at the global buffer level.
+
+## Practical Implementation: 16×16 WS Array
+
+Let's walk through a concrete 16×16 weight-stationary systolic array.
+
+### Array Top-Level
+
+```verilog
+module systolic_array_16x16 (
+  input  wire        clk,
+  input  wire        rst_n,
+  // Activation inputs (from left edge)
+  input  wire [15:0][7:0] a_inputs,
+  // Weight inputs (from top edge)  
+  input  wire [15:0][7:0] b_inputs,
+  // Partial sum outputs (from bottom edge)
+  output wire [15:0][19:0] c_outputs
+);
+
+  genvar row, col;
+  
+  // PE interconnect wires
+  wire [15:0][15:0][7:0]  a_wires;  // horizontal
+  wire [15:0][15:0][7:0]  b_wires;  // vertical
+  wire [15:0][15:0][19:0] c_wires;  // vertical
+  
+  generate
+    for (row = 0; row < 16; row = row + 1) begin : gen_row
+      for (col = 0; col < 16; col = col + 1) begin : gen_col
+        // Left edge: connect to a_inputs
+        if (col == 0) assign a_wires[row][col] = a_inputs[row];
+        // Top edge: connect to b_inputs
+        if (row == 0) assign b_wires[row][col] = b_inputs[col];
+        // Top edge: c_in = 0
+        wire [19:0] pe_c_in = (row == 0) ? 20'd0 : c_wires[row-1][col];
+        
+        systolic_pe pe (
+          .clk(clk),
+          .rst_n(rst_n),
+          .a_in(a_wires[row][col]),
+          .b_in(b_wires[row][col]),
+          .c_in(pe_c_in),
+          .a_out(col < 15 ? a_wires[row][col+1] : ),
+          .b_out(row < 15 ? b_wires[row+1][col] : ),
+          .c_out(c_wires[row][col])
+        );
+      end
+    end
+  endgenerate
+  
+  // Bottom edge outputs
+  generate
+    for (col = 0; col < 16; col = col + 1) begin : gen_out
+      assign c_outputs[col] = c_wires[15][col];
+    end
+  endgenerate
+
+endmodule
+```
+
+### Timing Analysis
+
+With INT8 multipliers, the critical path is typically:
+
+```
+register → multiplier → adder → register
+     ↓          ↓          ↓
+   ~50ps     ~300ps     ~150ps
+```
+
+Total: ~500ps → 2 GHz achievable in 5nm. In 28nm, expect ~800 MHz with careful synthesis.
+
+### Utilization Analysis
+
+The systolic array has a **fill time** and **drain time**:
+
+```
+Total cycles = (R + C - 1) useful cycles + fill/drain overlap
+Fill time = R + C - 2 cycles to fill the pipeline
+```
+
+For a 16×16 array computing `M×K × K×N`: the steady-state throughput is `16 × 16 = 256` MACs/cycle. With 2 GHz clock: **512 GOPS**.
+
+## Mapping Convolutions to Systolic Arrays
+
+Convolution layers can be lowered to matrix multiply using **im2col**:
+
+```
+Input: H × W × C feature map, R × R × C × F filter
+Output: (H-R+1) × (W-R+1) × F
+
+im2col: (H-R+1)(W-R+1) × (R×R×C) matrix  ×  (R×R×C) × F matrix
+```
+
+This conversion is well-understood but wastes memory due to duplicated pixels. Modern approaches use **direct convolution** or **Winograd** transforms to reduce the multiply count.
+
+## Sparsity and Skipping Zeros
+
+Modern networks (especially after pruning) are often 50-90% sparse. Naively computing zeros wastes energy and cycles.
+
+### Fine-Grained Sparsity (NVIDIA Ampere style)
+
+- 2-of-4 sparsity pattern: exactly 2 nonzeros per 4-element group
+- Requires special encoding in the weight format
+- Can double effective throughput
+
+### Coarse-Grained Sparsity
+
+- Skip entire zero rows/columns/pe groups
+- Requires dynamic scheduling
+- Better energy efficiency but more complex control
+
+## Conclusion
+
+A well-designed systolic array NPU can achieve 80-95% MAC utilization for dense workloads and 50-70% for sparse workloads. The key is choosing the right dataflow for your target workload and building a memory hierarchy that keeps the PEs fed.
+
+The next frontier is **dynamic dataflow selection** — where the hardware can reconfigure between WS/OS/IS based on the current layer's dimensions and sparsity pattern. This is an active area of research and development.
+
+## References
+
+- Kung, H. T. (1982). "Why Systolic Architectures?" *IEEE Computer*
+- Chen, Y. H., et al. (2016). "Eyeriss: A Spatial Architecture for Energy-Efficient Dataflow for CNNs" *ISCA*
+- Jouppi, N. P., et al. (2017). "In-Datacenter Performance Analysis of a Tensor Processing Unit" *ISCA*
+- Jia, Z., et al. (2019). "Dissecting the NVIDIA Volta GPU Architecture via Microbenchmarking"
