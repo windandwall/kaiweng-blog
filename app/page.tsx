@@ -4,7 +4,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
-import { TECH_STACK, SITE_CONFIG } from '@/lib/constants';
+import { INTEREST_TAGS, SITE_CONFIG } from '@/lib/constants';
 import { getAllPosts } from '@/lib/blog';
 import { formatDate } from '@/lib/utils';
 
@@ -23,29 +23,29 @@ export default function HomePage() {
               <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-green-400 opacity-75" />
               <span className="relative inline-flex h-2 w-2 rounded-full bg-green-500" />
             </span>
-            Available for opportunities
+            探索世界，记录生活
           </div>
 
           <h1 className="text-4xl font-bold tracking-tight md:text-5xl lg:text-6xl">
-            <span className="text-foreground/60">Hi, I&apos;m </span>
-            <span className="text-foreground">Kai Weng</span>
+            <span className="text-foreground/60">嗨，我是 </span>
+            <span className="text-foreground">峰峦是否天晴</span>
           </h1>
 
           <p className="text-lg text-muted-foreground leading-relaxed max-w-xl">
-            Digital IC design engineer focused on computer architecture, NPU design,
-            and high-performance chip implementation. Building the future of AI
-            hardware, one tape-out at a time.
+            数字 IC 设计工程师，热爱计算机架构与 AI 芯片。
+            工作之余，喜欢跑步、探店、摄影和烹饪。
+            用代码构建世界，用脚步丈量大地。
           </p>
 
           <div className="flex flex-wrap items-center gap-3 pt-2">
             <Link href="/blog">
               <Button size="lg" className="gap-2">
-                Read Blog <ArrowRight className="h-4 w-4" />
+                阅读文章 <ArrowRight className="h-4 w-4" />
               </Button>
             </Link>
-            <Link href="/projects">
+            <Link href="/categories">
               <Button variant="outline" size="lg" className="gap-2">
-                View Projects
+                探索分类
               </Button>
             </Link>
             <a href={SITE_CONFIG.author.github} target="_blank" rel="noopener noreferrer">
@@ -57,12 +57,12 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* Tech Stack */}
+      {/* Interest Tags */}
       <section className="mx-auto max-w-5xl px-6 pb-16 md:pb-24">
         <div className="flex flex-wrap gap-2">
-          {TECH_STACK.map((tech) => (
-            <Badge key={tech} variant="outline" className="font-mono text-xs py-1.5 px-3 hover:bg-accent transition-colors cursor-default">
-              {tech}
+          {INTEREST_TAGS.map((tag) => (
+            <Badge key={tag} variant="outline" className="font-mono text-xs py-1.5 px-3 hover:bg-accent transition-colors cursor-default">
+              {tag}
             </Badge>
           ))}
         </div>
@@ -75,16 +75,16 @@ export default function HomePage() {
         <section className="mx-auto max-w-5xl px-6 py-16 md:py-24">
           <div className="flex items-center justify-between mb-10">
             <div>
-              <h2 className="text-2xl font-bold tracking-tight">Latest Articles</h2>
+              <h2 className="text-2xl font-bold tracking-tight">最新文章</h2>
               <p className="text-sm text-muted-foreground mt-1">
-                Thoughts on chip design and computer architecture
+                技术、生活、美食与跑步的记录
               </p>
             </div>
             <Link
               href="/blog"
               className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors"
             >
-              View all <ChevronRight className="h-4 w-4" />
+              查看全部 <ChevronRight className="h-4 w-4" />
             </Link>
           </div>
 
@@ -125,10 +125,10 @@ export default function HomePage() {
       {/* Contact CTA */}
       <section className="mx-auto max-w-5xl px-6 py-16 md:py-24">
         <div className="max-w-xl">
-          <h2 className="text-2xl font-bold tracking-tight mb-4">Get in touch</h2>
+          <h2 className="text-2xl font-bold tracking-tight mb-4">与我联系</h2>
           <p className="text-muted-foreground mb-6">
-            Whether you want to discuss chip design, collaborate on open-source
-            hardware projects, or just say hi — I&apos;m always open to connecting.
+            无论是讨论芯片设计、分享跑步路线、推荐美食店铺，还是只想打个招呼——
+            都很乐意收到你的消息。
           </p>
           <div className="flex flex-wrap gap-3">
             <a href={`mailto:${SITE_CONFIG.author.email}`}>
@@ -142,7 +142,7 @@ export default function HomePage() {
               </Button>
             </a>
             <Link href="/contact">
-              <Button variant="ghost">More ways to connect →</Button>
+              <Button variant="ghost">更多联系方式 →</Button>
             </Link>
           </div>
         </div>
