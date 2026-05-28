@@ -10,7 +10,7 @@ export async function GET() {
     <title>${SITE_CONFIG.name} — ${SITE_CONFIG.title}</title>
     <link>${SITE_CONFIG.url}</link>
     <description>${SITE_CONFIG.description}</description>
-    <language>en</language>
+    <language>zh-CN</language>
     <lastBuildDate>${new Date().toUTCString()}</lastBuildDate>
     <atom:link href="${SITE_CONFIG.url}/feed.xml" rel="self" type="application/rss+xml"/>
     ${posts
