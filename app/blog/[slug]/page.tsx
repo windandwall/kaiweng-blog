@@ -23,7 +23,7 @@ export function generateStaticParams() {
 
 export function generateMetadata({ params }: Props): Metadata {
   const post = getPostBySlug(params.slug);
-  if (!post) return { title: 'Post Not Found' };
+  if (!post) return { title: '文章未找到' };
 
   return {
     title: post.title,
@@ -62,7 +62,7 @@ export default function BlogPostPage({ params }: Props) {
           href="/blog"
           className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors mb-8"
         >
-          <ArrowLeft className="h-3.5 w-3.5" /> Back to blog
+          <ArrowLeft className="h-3.5 w-3.5" /> 返回文章列表
         </Link>
 
         <div className="flex flex-col lg:flex-row gap-10">
@@ -91,7 +91,7 @@ export default function BlogPostPage({ params }: Props) {
                 </span>
                 <span className="flex items-center gap-1.5">
                   <Clock className="h-4 w-4" />
-                  {post.readingTime} min read
+                  {post.readingTime} 分钟阅读
                 </span>
               </div>
 
@@ -119,7 +119,7 @@ export default function BlogPostPage({ params }: Props) {
                 <Link href={`/blog/${prev.slug}`} className="group">
                   <div className="p-4 rounded-lg border border-border hover:border-foreground/20 transition-all">
                     <span className="text-xs text-muted-foreground flex items-center gap-1 mb-1">
-                      <ChevronLeft className="h-3 w-3" /> Previous
+                      <ChevronLeft className="h-3 w-3" /> 上一篇
                     </span>
                     <span className="text-sm font-medium group-hover:text-foreground/80 transition-colors line-clamp-1">
                       {prev.title}
@@ -133,7 +133,7 @@ export default function BlogPostPage({ params }: Props) {
                 <Link href={`/blog/${next.slug}`} className="group sm:text-right">
                   <div className="p-4 rounded-lg border border-border hover:border-foreground/20 transition-all">
                     <span className="text-xs text-muted-foreground flex items-center gap-1 mb-1 sm:justify-end">
-                      Next <ChevronRight className="h-3 w-3" />
+                      下一篇 <ChevronRight className="h-3 w-3" />
                     </span>
                     <span className="text-sm font-medium group-hover:text-foreground/80 transition-colors line-clamp-1">
                       {next.title}
