@@ -1,11 +1,9 @@
 import Link from 'next/link';
-import { Github, Mail, Twitter, Linkedin, Rss } from 'lucide-react';
+import { Github, Mail, Rss } from 'lucide-react';
 import { SITE_CONFIG } from '@/lib/constants';
 
 const socialLinks = [
   { icon: Github, href: SITE_CONFIG.author.github, label: 'GitHub' },
-  { icon: Twitter, href: SITE_CONFIG.author.twitter, label: 'Twitter' },
-  { icon: Linkedin, href: SITE_CONFIG.author.linkedin, label: 'LinkedIn' },
   { icon: Mail, href: `mailto:${SITE_CONFIG.author.email}`, label: 'Email' },
   { icon: Rss, href: '/feed.xml', label: 'RSS' },
 ];
@@ -16,7 +14,7 @@ export function Footer() {
       <div className="mx-auto max-w-5xl px-6 py-12">
         <div className="flex flex-col md:flex-row items-center justify-between gap-6">
           <div className="flex items-center gap-1 text-sm text-muted-foreground">
-            <span className="font-mono text-foreground/70">~/kaiweng</span>
+            <span className="font-mono text-foreground/70">~/峰峦是否天晴</span>
             <span className="mx-2">·</span>
             <span>&copy; {new Date().getFullYear()}</span>
           </div>
@@ -38,13 +36,13 @@ export function Footer() {
 
           <div className="flex items-center gap-4 text-xs text-muted-foreground">
             <Link href="/blog" className="hover:text-foreground transition-colors">
-              Blog
+              文章
             </Link>
-            <Link href="/projects" className="hover:text-foreground transition-colors">
-              Projects
+            <Link href="/categories" className="hover:text-foreground transition-colors">
+              分类
             </Link>
             <Link href="/about" className="hover:text-foreground transition-colors">
-              About
+              关于
             </Link>
           </div>
         </div>
