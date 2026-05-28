@@ -20,7 +20,7 @@ export function Header() {
           <span className="text-lg font-bold tracking-tight">
             <span className="text-foreground">~/</span>
             <span className="text-foreground/70 group-hover:text-foreground transition-colors">
-              kaiweng
+              峰峦是否天晴
             </span>
           </span>
         </Link>
