@@ -1,51 +1,35 @@
 import type { Metadata } from 'next';
-import { Github, Mail, Linkedin, Twitter, MessageSquare, ArrowRight } from 'lucide-react';
+import { Github, Mail, MessageSquare, ArrowRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
 import { SITE_CONFIG } from '@/lib/constants';
 
 export const metadata: Metadata = {
-  title: 'Contact',
-  description: 'Get in touch — email, GitHub, LinkedIn, or leave a message.',
+  title: '联系',
+  description: '与我取得联系 — 邮件或 GitHub。',
   openGraph: {
-    title: 'Contact — Kai Weng',
-    description: 'Get in touch — email, GitHub, LinkedIn, or leave a message.',
+    title: '联系 — 峰峦是否天晴',
+    description: '与我取得联系 — 邮件或 GitHub。',
   },
 };
 
 const contactMethods = [
   {
     title: 'Email',
-    description: 'Direct and reliable. I typically respond within 24 hours.',
+    description: '最直接可靠的方式，我通常会在 24 小时内回复。',
     icon: Mail,
     href: `mailto:${SITE_CONFIG.author.email}`,
     label: SITE_CONFIG.author.email,
-    cta: 'Send email',
+    cta: '发送邮件',
   },
   {
     title: 'GitHub',
-    description: 'Open an issue or start a discussion on any of my projects.',
+    description: '在项目里提 Issue 或发起 Discussion，一起讨论技术问题。',
     icon: Github,
     href: SITE_CONFIG.author.github,
-    label: 'github.com/kaiweng',
-    cta: 'View GitHub',
-  },
-  {
-    title: 'LinkedIn',
-    description: 'Connect with me professionally and see my full experience.',
-    icon: Linkedin,
-    href: SITE_CONFIG.author.linkedin,
-    label: 'linkedin.com/in/kaiweng',
-    cta: 'Connect',
-  },
-  {
-    title: 'Twitter',
-    description: 'Follow me for updates on my work and chip design thoughts.',
-    icon: Twitter,
-    href: SITE_CONFIG.author.twitter,
-    label: 'twitter.com/kaiweng',
-    cta: 'Follow',
+    label: 'github.com/windandwall',
+    cta: '访问 GitHub',
   },
 ];
 
@@ -53,17 +37,16 @@ export default function ContactPage() {
   return (
     <div className="mx-auto max-w-5xl px-6 py-12 md:py-20 animate-fade-in">
       <div className="max-w-2xl mb-12">
-        <h1 className="text-3xl font-bold tracking-tight mb-4">Contact</h1>
+        <h1 className="text-3xl font-bold tracking-tight mb-4">联系</h1>
         <p className="text-muted-foreground leading-relaxed">
-          Whether you have a question about chip design, want to collaborate on
-          a project, or just want to say hi — feel free to reach out through
-          any of the channels below.
+          无论是讨论芯片设计、分享跑步路线、推荐美食店铺，还是只想打个招呼——
+          都欢迎通过以下方式联系我。
         </p>
       </div>
 
       <div className="grid gap-4 md:grid-cols-2 mb-16">
         {contactMethods.map((method) => (
-          <Card key={method.title} className="p-6 group hover:border-foreground/20 transition-all duration-300">
+          <Card key={method.title} className="p-6 group transition-all duration-300 ease-out hover:scale-[1.02] hover:shadow-md">
             <div className="flex items-start gap-4">
               <div className="w-10 h-10 rounded-lg bg-accent flex items-center justify-center shrink-0 group-hover:bg-foreground/10 transition-colors">
                 <method.icon className="h-4 w-4" />
@@ -91,14 +74,14 @@ export default function ContactPage() {
       <div className="max-w-lg">
         <div className="flex items-center gap-2 mb-3">
           <MessageSquare className="h-4 w-4 text-muted-foreground" />
-          <h2 className="font-semibold text-sm">Looking for comments?</h2>
+          <h2 className="font-semibold text-sm">想留言评论？</h2>
         </div>
         <p className="text-sm text-muted-foreground leading-relaxed">
-          Blog comments are powered by Giscus (GitHub Discussions). Head over to the{' '}
+          博客评论使用 Giscus（基于 GitHub Discussions）。前往{' '}
           <a href="/blog" className="underline underline-offset-4 hover:text-foreground">
-            blog
+            文章页
           </a>{' '}
-          to join the conversation, or open a discussion on{' '}
+          参与讨论，或者在{' '}
           <a
             href={SITE_CONFIG.author.github}
             target="_blank"
@@ -107,7 +90,7 @@ export default function ContactPage() {
           >
             GitHub
           </a>
-          .
+          {' '}上发起 Discussion。
         </p>
       </div>
     </div>
