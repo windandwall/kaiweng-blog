@@ -14,15 +14,14 @@ export const metadata: Metadata = {
   },
   description: SITE_CONFIG.description,
   keywords: [
-    'digital IC', 'Verilog', 'SystemVerilog', 'FPGA', 'NPU',
-    'computer architecture', 'chip design', 'RISC-V', 'SoC',
-    'semiconductor', 'AI chip', 'hardware design',
+    '技术博客', 'RISC-V', 'FPGA', '计算机架构', 'AI芯片',
+    '跑步', '美食', '生活随笔', '硬件设计', '个人博客',
   ],
   authors: [{ name: SITE_CONFIG.author.name }],
   creator: SITE_CONFIG.author.name,
   openGraph: {
     type: 'website',
-    locale: 'en_US',
+    locale: 'zh_CN',
     url: SITE_CONFIG.url,
     title: `${SITE_CONFIG.name} — ${SITE_CONFIG.title}`,
     description: SITE_CONFIG.description,
@@ -56,15 +55,32 @@ export default function RootLayout({
 }: {
   children: React.ReactNode;
 }) {
+  const bgImage = SITE_CONFIG.backgroundImage;
+
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html lang="zh-CN" suppressHydrationWarning>
       <head>
         <link rel="icon" href="/favicon.ico" sizes="any" />
         <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
         <link rel="manifest" href="/manifest.json" />
       </head>
-      <body className="min-h-screen bg-background font-sans antialiased">
-        <ThemeProvider attribute="class" defaultTheme="dark" enableSystem={false}>
+      <body
+        className="min-h-screen bg-background font-sans antialiased"
+        style={
+          bgImage
+            ? {
+                backgroundImage: `url(${bgImage})`,
+                backgroundSize: 'cover',
+                backgroundAttachment: 'fixed',
+                backgroundPosition: 'center',
+              }
+            : undefined
+        }
+      >
+        {bgImage && (
+          <div className="fixed inset-0 bg-background/80 backdrop-blur-sm -z-10" />
+        )}
+        <ThemeProvider attribute="class" defaultTheme="light" enableSystem={false}>
           <div className="relative flex min-h-screen flex-col">
             <Header />
             <main className="flex-1">{children}</main>
