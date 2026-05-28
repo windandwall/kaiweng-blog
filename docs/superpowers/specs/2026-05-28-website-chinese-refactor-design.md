@@ -10,7 +10,7 @@
 |------|--------|------|
 | name | 翁新凯的个人空间~ | **峰峦是否天晴的个人空间~** |
 | title | Life & Tech Blog | **技术 · 生活 · 美食 · 跑步** |
-| description | (英文诗句) | **用代码构建世界，用脚步丈量大地。技术、生活、美食与跑步的记录。** |
+| description | (英文诗句) | **一直游到海水变蓝** |
 | author.name | Xinkai Weng | **峰峦是否天晴** |
 | author.email | 1300490465@qq.com | (不变) |
 | author.github | github.com/windandwall | (不变) |
@@ -33,7 +33,7 @@
 ### 标签 (Tags)
 
 - Tech: RISC-V, FPGA, NPU, 计算机架构, AI芯片, 处理器设计, Verilog, 信号处理
-- Life: 生活随笔, 读书笔记, 日常思考, 摄影, 旅行
+- Life: 生活随笔, 读书笔记, 日常思考, 摄影
 - Food: 美食探店, 烹饪记录, 咖啡, 食材探索
 - Run: 跑步记录, 马拉松, 运动健康, 越野跑, 训练计划
 
@@ -66,7 +66,7 @@
 
 - 重构为立体化自我介绍
 - 移除纯技术技能列表，改为技术+生活双板块
-- 教育经历中文化
+- 移除教育经历板块
 - 增加"关于我"生活化描述段落
 - "Connect" → "找到我"
 
@@ -121,22 +121,22 @@
 
 ### 5.1 浅色默认主题 (globals.css)
 
-默认 light 主题使用柔和配色：
+默认 light 主题使用柔和米黄色配色：
 
 ```css
 :root {
-  --background: 210 20% 98%;       /* 柔和淡蓝灰背景 */
-  --foreground: 220 15% 20%;        /* 深灰文字 */
-  --muted: 210 15% 94%;             /* 淡灰 */
-  --muted-foreground: 220 10% 50%;
-  --card: 0 0% 100%;                /* 白色卡片 */
-  --card-foreground: 220 15% 20%;
-  --border: 210 15% 88%;            /* 淡灰边框 */
-  --primary: 220 15% 20%;
-  --primary-foreground: 0 0% 98%;
-  --accent: 210 20% 95%;            /* 柔和淡蓝 accent */
-  --accent-foreground: 220 15% 20%;
-  --ring: 220 15% 20%;
+  --background: 40 25% 97%;          /* 柔和米黄色背景 */
+  --foreground: 30 10% 18%;          /* 深棕灰文字 */
+  --muted: 40 15% 93%;               /* 淡米色 */
+  --muted-foreground: 30 8% 45%;
+  --card: 0 0% 100%;                 /* 白色卡片 */
+  --card-foreground: 30 10% 18%;
+  --border: 35 15% 88%;              /* 暖灰边框 */
+  --primary: 30 10% 18%;
+  --primary-foreground: 40 25% 97%;
+  --accent: 40 20% 93%;              /* 柔和米黄 accent */
+  --accent-foreground: 30 10% 18%;
+  --ring: 30 10% 18%;
 }
 ```
 
