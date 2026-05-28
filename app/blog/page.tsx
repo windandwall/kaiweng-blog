@@ -3,13 +3,13 @@ import { BlogListClient } from './blog-list-client';
 import { getAllPosts, getAllTags, getAllCategories } from '@/lib/blog';
 
 export const metadata: Metadata = {
-  title: 'Blog',
+  title: '文章',
   description:
-    'Technical articles about digital IC design, computer architecture, FPGA, NPU, and AI chips.',
+    '技术文章、生活随笔、美食记录与跑步日志。',
   openGraph: {
-    title: 'Blog — Kai Weng',
+    title: '文章 — 峰峦是否天晴',
     description:
-      'Technical articles about digital IC design, computer architecture, FPGA, NPU, and AI chips.',
+      '技术文章、生活随笔、美食记录与跑步日志。',
   },
 };
 

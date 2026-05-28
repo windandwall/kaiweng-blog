@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { BlogCard } from '@/components/blog/blog-card';
 import { BlogSearch } from '@/components/blog/search';
 import { Badge } from '@/components/ui/badge';
@@ -18,10 +19,19 @@ interface Props {
 const ITEMS_PER_PAGE = 6;
 
 export function BlogListClient({ posts, tags, categories }: Props) {
+  const searchParams = useSearchParams();
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedTag, setSelectedTag] = useState<string | null>(null);
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
+
+  // Read URL search params on mount for /blog?category=Tech links
+  useEffect(() => {
+    const cat = searchParams.get('category');
+    const tag = searchParams.get('tag');
+    if (cat) setSelectedCategory(cat);
+    if (tag) setSelectedTag(tag);
+  }, [searchParams]);
 
   const filteredPosts = useMemo(() => {
     let result = posts;
@@ -70,10 +80,9 @@ export function BlogListClient({ posts, tags, categories }: Props) {
     <div className="mx-auto max-w-5xl px-6 py-12 md:py-20">
       {/* Header */}
       <div className="mb-10 space-y-4">
-        <h1 className="text-3xl font-bold tracking-tight">Blog</h1>
+        <h1 className="text-3xl font-bold tracking-tight">文章</h1>
         <p className="text-muted-foreground max-w-lg">
-          Technical articles on digital IC design, computer architecture, FPGA,
-          NPU, and AI chips.
+          技术文章、生活随笔、美食记录与跑步日志。
         </p>
         <BlogSearch onSearch={setSearchQuery} className="max-w-md" />
       </div>
@@ -84,7 +93,7 @@ export function BlogListClient({ posts, tags, categories }: Props) {
           {/* Categories */}
           <div>
             <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3">
-              Categories
+              分类
             </h3>
             <div className="space-y-1">
               <button
@@ -96,7 +105,7 @@ export function BlogListClient({ posts, tags, categories }: Props) {
                     : 'text-muted-foreground hover:text-foreground'
                 )}
               >
-                All ({posts.length})
+                全部 ({posts.length})
               </button>
               {categories.map((c) => (
                 <button
@@ -122,7 +131,7 @@ export function BlogListClient({ posts, tags, categories }: Props) {
           {/* Tags */}
           <div>
             <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3">
-              Tags
+              标签
             </h3>
             <div className="flex flex-wrap gap-1.5">
               {tags.map((t) => (
@@ -150,7 +159,7 @@ export function BlogListClient({ posts, tags, categories }: Props) {
               className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
             >
               <X className="h-3 w-3" />
-              Clear filters
+              清除筛选
             </button>
           )}
         </aside>
@@ -207,13 +216,13 @@ export function BlogListClient({ posts, tags, categories }: Props) {
             </>
           ) : (
             <div className="flex flex-col items-center justify-center py-20 text-center">
-              <p className="text-muted-foreground">No posts found.</p>
+              <p className="text-muted-foreground">暂无文章</p>
               {hasActiveFilters && (
                 <button
                   onClick={clearFilters}
                   className="text-sm text-foreground underline mt-2"
                 >
-                  Clear all filters
+                  清除所有筛选
                 </button>
               )}
             </div>
